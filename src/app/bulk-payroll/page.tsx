@@ -3,9 +3,8 @@
 import React, { useState, useCallback } from 'react';
 import { CSVUploadForm } from '@/components/bulk-payroll/CSVUploadForm';
 import { JobsList } from '@/components/bulk-payroll/JobsListComponent';
-import BaseSubAccountComponent from '@/components/base-sub-account/SubAccountDemo';
 
-type Tab = 'upload' | 'jobs' | 'sub-account';
+type Tab = 'upload' | 'jobs';
 
 export default function BulkPayrollPage() {
   const [activeTab, setActiveTab] = useState<Tab>('upload');
@@ -56,23 +55,12 @@ export default function BulkPayrollPage() {
           >
             View Jobs
           </button>
-          <button
-            onClick={() => setActiveTab('sub-account')}
-            className={`px-4 py-2 font-medium ${
-              activeTab === 'sub-account'
-                ? 'border-b-2 border-blue-500 text-blue-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Base Sub Account
-          </button>
         </div>
 
         {/* Tab Content */}
         <div className="rounded-lg bg-white p-6 shadow">
           {activeTab === 'upload' && <CSVUploadForm onSuccess={handleUploadSuccess} />}
           {activeTab === 'jobs' && <JobsList />}
-          {activeTab === 'sub-account' && <BaseSubAccountComponent />}
         </div>
       </div>
     </main>

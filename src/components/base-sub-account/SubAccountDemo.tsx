@@ -20,6 +20,11 @@ interface WalletAddSubAccountResponse {
   factoryData?: `0x${string}`;
 }
 
+// Base Sepolia testnet USDC contract
+const USDC_ADDRESS = '0x036CbD53842c5426634E7929541eC2318f3dCd01';
+// Payment recipient address
+const PAYMENT_RECIPIENT = '0xeEb1aa8def0E163921591427ae71F6f3759797ac';
+
 export default function BaseSubAccountComponent() {
   const [provider, setProvider] = useState<ReturnType<
     ReturnType<typeof createBaseAccountSDK>['getProvider']
@@ -137,14 +142,20 @@ export default function BaseSubAccountComponent() {
     }
 
     setLoadingTransaction(true);
-    setStatus('Sending USDC transaction...');
+    setStatus('Sending USDC payment to payroll recipient...');
     setTxHash('');
 
     try {
-      // USDC contract on Base Sepolia Testnet: 0x036CbD53842c5426634E7929541eC2318f3dCd01
-      // Transfer function selector + recipient + amount
-      // amount: 1 USDC (6 decimals) = 1000000
-      const usdcAmount = '1000000'; // 1 USDC
+      // USDC transfer: 1 USDC (6 decimals) = 1000000
+      const usdcAmount = '1000000';
+      
+      // Encode ERC-20 transfer function call
+      // transfer(address to, uint256 amount)
+      const encodedData = `0xa9059cbb000000000000000000000000${
+        PAYMENT_RECIPIENT.toLowerCase().slice(2)
+      }0000000000000000000000000000000000000000000000000000000000${parseInt(
+        usdcAmount
+      ).toString(16)}`;
 
       const callsId = (await provider.request({
         method: 'wallet_sendCalls',
@@ -156,12 +167,8 @@ export default function BaseSubAccountComponent() {
             from: subAccount.address,
             calls: [
               {
-                to: '0x036CbD53842c5426634E7929541eC2318f3dCd01', // USDC contract on Base Sepolia
-                data: `0xa9059cbb000000000000000000000000${
-                  '70c573979F61710D3284120261B562e524ad3763'.toLowerCase().slice(2)
-                }0000000000000000000000000000000000000000000000000000000000${parseInt(
-                  usdcAmount
-                ).toString(16)}`,
+                to: USDC_ADDRESS,
+                data: encodedData,
                 value: '0x0',
               },
             ],
@@ -170,10 +177,10 @@ export default function BaseSubAccountComponent() {
       })) as string;
 
       setTxHash(callsId);
-      setStatus(`Transaction sent! Calls ID: ${callsId.slice(0, 10)}...`);
+      setStatus(`✅ Payment sent! Calls ID: ${callsId.slice(0, 10)}...`);
     } catch (error) {
-      console.error('Send transaction failed:', error);
-      setStatus(`Transaction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Payment failed:', error);
+      setStatus(`❌ Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoadingTransaction(false);
     }
@@ -266,10 +273,18 @@ export default function BaseSubAccountComponent() {
         <ol className="space-y-1 text-sm text-blue-800">
           <li>1. Click "Connect Phantom Wallet" to connect your Base Account</li>
           <li>2. Click "Create Sub Account" to create an app-specific sub account</li>
-          <li>3. Click "Send 1 USDC Test Transaction" to test sending USDC</li>
-          <li>4. Recipient: 0x70c573979F61710D3284120261B562e524ad3763</li>
+          <li>3. Click "Send 1 USDC Test Transaction" to process payroll payment</li>
+          <li>4. Recipient: {PAYMENT_RECIPIENT}</li>
+          <li>5. Amount: 1 USDC on Base Sepolia Testnet</li>
         </ol>
+      </div>
+
+      <div className="mt-4 rounded-lg bg-amber-50 p-4 text-xs text-amber-800">
+        <p className="font-semibold">Network Details:</p>
+        <p>Chain: Base Sepolia Testnet</p>
+        <p>USDC Contract: {USDC_ADDRESS}</p>
+        <p>Method: wallet_sendCalls (EIP-5792)</p>
       </div>
     </div>
   );
-}
+};

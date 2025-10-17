@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
+import { createBaseAccountSDK } from '@base-org/account';
+import { baseSepolia } from 'viem/chains';
 
 interface Job {
   id: string;
@@ -16,15 +17,36 @@ interface Job {
   completedAt?: string;
 }
 
+const PAYMENT_RECIPIENT = '0xeEb1aa8def0E163921591427ae71F6f3759797ac';
+const USDC_ADDRESS = '0x036CbD53842c5426634E7929541eC2318f3dCd01';
+
 export const JobsList: React.FC = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [provider, setProvider] = useState<any>(null);
+  const [subAccount, setSubAccount] = useState<any>(null);
+  const [paymentStates, setPaymentStates] = useState<Record<string, { loading: boolean; status: string }>>({});
 
   useEffect(() => {
     fetchJobs();
+    initializeSDK();
   }, [page]);
+
+  const initializeSDK = async () => {
+    try {
+      const sdkInstance = createBaseAccountSDK({
+        appName: 'Bulk Payroll Base Account',
+        appLogoUrl: 'https://base.org/logo.png',
+        appChainIds: [baseSepolia.id],
+      });
+      const providerInstance = sdkInstance.getProvider();
+      setProvider(providerInstance);
+    } catch (error) {
+      console.error('SDK initialization failed:', error);
+    }
+  };
 
   const fetchJobs = async () => {
     try {
@@ -48,6 +70,136 @@ export const JobsList: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Failed to fetch jobs');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const sendBasePayment = async (jobId: string) => {
+    if (!provider) {
+      setPaymentStates((prev) => ({
+        ...prev,
+        [jobId]: { loading: false, status: 'Provider not initialized' },
+      }));
+      return;
+    }
+
+    setPaymentStates((prev) => ({
+      ...prev,
+      [jobId]: { loading: true, status: 'Connecting wallet...' },
+    }));
+
+    try {
+      // Connect wallet if not already connected
+      const accounts = (await provider.request({
+        method: 'eth_requestAccounts',
+        params: [],
+      })) as string[];
+
+      const universalAddr = accounts[0];
+
+      // Check for existing sub account
+      const response = (await provider.request({
+        method: 'wallet_getSubAccounts',
+        params: [
+          {
+            account: universalAddr,
+            domain: window.location.origin,
+          },
+        ],
+      })) as any;
+
+      let currentSubAccount = response.subAccounts?.[0];
+
+      // Create sub account if it doesn't exist
+      if (!currentSubAccount) {
+        setPaymentStates((prev) => ({
+          ...prev,
+          [jobId]: { loading: true, status: 'Creating Sub Account...' },
+        }));
+
+        currentSubAccount = (await provider.request({
+          method: 'wallet_addSubAccount',
+          params: [
+            {
+              account: {
+                type: 'create',
+              },
+            },
+          ],
+        })) as any;
+      }
+
+      setSubAccount(currentSubAccount);
+
+      // Send USDC payment
+      setPaymentStates((prev) => ({
+        ...prev,
+        [jobId]: { loading: true, status: 'Sending USDC payment...' },
+      }));
+
+      const usdcAmount = '1000000'; // 1 USDC
+      const encodedData = `0xa9059cbb000000000000000000000000${
+        PAYMENT_RECIPIENT.toLowerCase().slice(2)
+      }0000000000000000000000000000000000000000000000000000000000${parseInt(
+        usdcAmount
+      ).toString(16)}`;
+
+      const callsId = (await provider.request({
+        method: 'wallet_sendCalls',
+        params: [
+          {
+            version: '2.0',
+            atomicRequired: true,
+            chainId: `0x${baseSepolia.id.toString(16)}`,
+            from: currentSubAccount.address,
+            calls: [
+              {
+                to: USDC_ADDRESS,
+                data: encodedData,
+                value: '0x0',
+              },
+            ],
+          },
+        ],
+      })) as string;
+
+      // Update job status to COMPLETED
+      await fetch(`/api/bulk-payroll/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
+        },
+        body: JSON.stringify({ status: 'COMPLETED' }),
+      });
+
+      // Update local state
+      setJobs((prevJobs) =>
+        prevJobs.map((job) =>
+          job.id === jobId ? { ...job, status: 'COMPLETED' } : job
+        )
+      );
+
+      setPaymentStates((prev) => ({
+        ...prev,
+        [jobId]: { loading: false, status: `✅ Payment sent! ID: ${callsId.slice(0, 10)}...` },
+      }));
+
+      // Clear status after 5 seconds
+      setTimeout(() => {
+        setPaymentStates((prev) => ({
+          ...prev,
+          [jobId]: { loading: false, status: '' },
+        }));
+      }, 5000);
+    } catch (error) {
+      console.error('Payment failed:', error);
+      setPaymentStates((prev) => ({
+        ...prev,
+        [jobId]: {
+          loading: false,
+          status: `❌ Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      }));
     }
   };
 
@@ -137,12 +289,22 @@ export const JobsList: React.FC = () => {
                 {new Date(job.createdAt).toLocaleDateString()}
               </td>
               <td className="px-6 py-4">
-                <Link
-                  href={`/bulk-payroll/jobs/${job.id}`}
-                  className="text-blue-600 hover:text-blue-900 text-sm font-medium"
-                >
-                  Send Base Payment
-                </Link>
+                <div className="flex flex-col gap-2">
+                  {job.status === 'COMPLETED' ? (
+                    <span className="text-green-600 font-medium text-sm">✅ Completed</span>
+                  ) : (
+                    <button
+                      onClick={() => sendBasePayment(job.id)}
+                      disabled={paymentStates[job.id]?.loading || job.status === 'COMPLETED'}
+                      className="text-blue-600 hover:text-blue-900 text-sm font-medium disabled:text-gray-400 disabled:cursor-not-allowed"
+                    >
+                      {paymentStates[job.id]?.loading ? 'Processing...' : 'Send Base Payment'}
+                    </button>
+                  )}
+                  {paymentStates[job.id]?.status && (
+                    <span className="text-xs text-gray-600">{paymentStates[job.id].status}</span>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
