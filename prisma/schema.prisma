@@ -1,0 +1,72 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String
+  role      String     @default("USER") // UserRole: ADMIN, USER, AUDITOR
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  // Relations
+  bulkPayrollJobs BulkPayrollJob[]
+
+  @@map("users")
+}
+
+model BulkPayrollJob {
+  id               String     @id @default(cuid())
+  uploaderId       String
+  uploader         User       @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  status           String     @default("QUEUED") // BulkPayrollJobStatus: QUEUED, PROCESSING, COMPLETED, FAILED, CANCELLED
+  totalRows        Int
+  validRows        Int
+  invalidRows      Int
+  processedRows    Int        @default(0)
+  failedRows       Int        @default(0)
+  rawPayload       String // Stores the raw CSV rows or metadata for reference (JSON serialized)
+  errorSummary     String? // Top validation errors (JSON serialized)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  // Relations
+  rows BulkPayrollRow[]
+
+  @@index([uploaderId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("bulk_payroll_jobs")
+}
+
+model BulkPayrollRow {
+  id               String     @id @default(cuid())
+  jobId            String
+  job              BulkPayrollJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  rowIndex         Int // 0-based index in the original CSV
+  input            String // Raw input from CSV row (JSON serialized)
+  normalized       String? // Normalized/validated data (JSON serialized)
+  status           String     @default("PENDING") // BulkPayrollRowStatus: PENDING, SUCCESS, FAILED
+  attempts         Int        @default(0)
+  maxRetries       Int        @default(3)
+  providerResponse String? // Response from payments adapter (JSON serialized)
+  errorMessage     String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@unique([jobId, rowIndex])
+  @@index([jobId])
+  @@index([status])
+  @@map("bulk_payroll_rows")
+}

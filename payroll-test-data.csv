@@ -1,0 +1,4 @@
+employee_id,employee_email,amount,currency,pay_date,description,external_reference
+EMP001,john.smith@example.com,1500.00,USD,2025-11-01,November salary,REF-2025-001
+EMP002,jane.doe@example.com,2000.50,EUR,2025-11-05,Monthly payment with bonus,REF-2025-002
+EMP003,bob.wilson@example.com,1200.75,GBP,2025-10-28,October salary,REF-2025-003

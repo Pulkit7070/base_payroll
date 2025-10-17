@@ -1,0 +1,11 @@
+employee_email,amount,currency,pay_date,description,external_reference
+jane.doe@example.com,1500.00,USD,2025-11-01,November salary,REF-202511
+john.smith@example.com,2000.50,EUR,2025-11-05,November salary + bonus,REF-202511-BONUS
+bob.wilson@example.com,1200.00,GBP,2025-11-01,November salary,REF-202511
+alice.johnson@example.com,3500.75,USD,2025-11-10,Consulting fee,REF-202511-CONSULT
+invalid.email,1000.00,INVALID,2025-11-01,Invalid currency test,REF-TEST-1
+charlie.brown@example.com,0.50,USD,2025-11-01,Micro payment,REF-202511-MICRO
+diana.prince@example.com,1500000.00,USD,2025-11-01,Amount exceeds limit,REF-LIMIT
+eve.martin@example.com,1500.00,USD,2024-01-01,Date in past beyond window,REF-OLD
+frank.miller@example.com,1500.00,USD,2025-11-01,Duplicate test,REF-DUP
+frank.miller@example.com,1500.00,USD,2025-11-01,Duplicate test,REF-DUP

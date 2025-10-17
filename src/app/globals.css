@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  @apply m-0 p-0 box-border;
+}
+
+body {
+  @apply bg-gray-50 text-gray-900;
+}
+
+main {
+  @apply min-h-screen;
+}
+
+button {
+  @apply transition-colors duration-200;
+}
+
+input,
+textarea,
+select {
+  @apply rounded border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500;
+}
+
+label {
+  @apply mb-2 block font-medium text-gray-700;
+}
+
+.error {
+  @apply text-sm text-red-600;
+}
+
+.success {
+  @apply text-sm text-green-600;
+}
+
+.warning {
+  @apply text-sm text-amber-600;
+}
