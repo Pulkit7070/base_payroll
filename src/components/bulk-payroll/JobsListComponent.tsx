@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createBaseAccountSDK } from '@base-org/account';
 import { baseSepolia } from 'viem/chains';
 
@@ -17,6 +17,22 @@ interface Job {
   completedAt?: string;
 }
 
+interface SubAccount {
+  address: `0x${string}`;
+  factory?: `0x${string}`;
+  factoryData?: `0x${string}`;
+}
+
+interface GetSubAccountsResponse {
+  subAccounts: SubAccount[];
+}
+
+interface WalletAddSubAccountResponse {
+  address: `0x${string}`;
+  factory?: `0x${string}`;
+  factoryData?: `0x${string}`;
+}
+
 const PAYMENT_RECIPIENT = '0xeEb1aa8def0E163921591427ae71F6f3759797ac';
 const USDC_ADDRESS = '0x036CbD53842c5426634E7929541eC2318f3dCd01';
 
@@ -25,9 +41,13 @@ export const JobsList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [provider, setProvider] = useState<any>(null);
-  const [subAccount, setSubAccount] = useState<any>(null);
   const [paymentStates, setPaymentStates] = useState<Record<string, { loading: boolean; status: string }>>({});
+  
+  // SDK and provider refs - persisted across renders
+  const sdkRef = useRef<ReturnType<typeof createBaseAccountSDK> | null>(null);
+  const providerRef = useRef<any>(null);
+  const subAccountRef = useRef<SubAccount | null>(null);
+  const universalAddressRef = useRef<string>('');
 
   useEffect(() => {
     fetchJobs();
@@ -36,13 +56,15 @@ export const JobsList: React.FC = () => {
 
   const initializeSDK = async () => {
     try {
-      const sdkInstance = createBaseAccountSDK({
-        appName: 'Bulk Payroll Base Account',
-        appLogoUrl: 'https://base.org/logo.png',
-        appChainIds: [baseSepolia.id],
-      });
-      const providerInstance = sdkInstance.getProvider();
-      setProvider(providerInstance);
+      if (!sdkRef.current) {
+        const sdkInstance = createBaseAccountSDK({
+          appName: 'Bulk Payroll Base Account',
+          appLogoUrl: 'https://base.org/logo.png',
+          appChainIds: [baseSepolia.id],
+        });
+        sdkRef.current = sdkInstance;
+        providerRef.current = sdkInstance.getProvider();
+      }
     } catch (error) {
       console.error('SDK initialization failed:', error);
     }
@@ -74,10 +96,10 @@ export const JobsList: React.FC = () => {
   };
 
   const sendBasePayment = async (jobId: string) => {
-    if (!provider) {
+    if (!providerRef.current) {
       setPaymentStates((prev) => ({
         ...prev,
-        [jobId]: { loading: false, status: 'Provider not initialized' },
+        [jobId]: { loading: false, status: 'SDK not initialized' },
       }));
       return;
     }
@@ -88,16 +110,24 @@ export const JobsList: React.FC = () => {
     }));
 
     try {
-      // Connect wallet if not already connected
+      const provider = providerRef.current;
+
+      // Step 1: Connect wallet and get accounts
       const accounts = (await provider.request({
         method: 'eth_requestAccounts',
         params: [],
       })) as string[];
 
       const universalAddr = accounts[0];
+      universalAddressRef.current = universalAddr;
 
-      // Check for existing sub account
-      const response = (await provider.request({
+      setPaymentStates((prev) => ({
+        ...prev,
+        [jobId]: { loading: true, status: 'Checking for existing Sub Account...' },
+      }));
+
+      // Step 2: Check for existing sub account
+      const getSubAccountsResponse = (await provider.request({
         method: 'wallet_getSubAccounts',
         params: [
           {
@@ -105,18 +135,18 @@ export const JobsList: React.FC = () => {
             domain: window.location.origin,
           },
         ],
-      })) as any;
+      })) as GetSubAccountsResponse;
 
-      let currentSubAccount = response.subAccounts?.[0];
+      let currentSubAccount = getSubAccountsResponse.subAccounts?.[0];
 
-      // Create sub account if it doesn't exist
+      // Step 3: Create sub account if it doesn't exist
       if (!currentSubAccount) {
         setPaymentStates((prev) => ({
           ...prev,
           [jobId]: { loading: true, status: 'Creating Sub Account...' },
         }));
 
-        currentSubAccount = (await provider.request({
+        const createResponse = (await provider.request({
           method: 'wallet_addSubAccount',
           params: [
             {
@@ -125,18 +155,20 @@ export const JobsList: React.FC = () => {
               },
             },
           ],
-        })) as any;
+        })) as WalletAddSubAccountResponse;
+
+        currentSubAccount = createResponse;
       }
 
-      setSubAccount(currentSubAccount);
+      subAccountRef.current = currentSubAccount;
 
-      // Send USDC payment
       setPaymentStates((prev) => ({
         ...prev,
         [jobId]: { loading: true, status: 'Sending USDC payment...' },
       }));
 
-      const usdcAmount = '1000000'; // 1 USDC
+      // Step 4: Send USDC payment via wallet_sendCalls
+      const usdcAmount = '1000000'; // 1 USDC (6 decimals)
       const encodedData = `0xa9059cbb000000000000000000000000${
         PAYMENT_RECIPIENT.toLowerCase().slice(2)
       }0000000000000000000000000000000000000000000000000000000000${parseInt(
@@ -162,8 +194,13 @@ export const JobsList: React.FC = () => {
         ],
       })) as string;
 
-      // Update job status to COMPLETED
-      await fetch(`/api/bulk-payroll/jobs/${jobId}`, {
+      setPaymentStates((prev) => ({
+        ...prev,
+        [jobId]: { loading: true, status: 'Updating job status...' },
+      }));
+
+      // Step 5: Update job status to COMPLETED
+      const updateResponse = await fetch(`/api/bulk-payroll/jobs/${jobId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -171,6 +208,10 @@ export const JobsList: React.FC = () => {
         },
         body: JSON.stringify({ status: 'COMPLETED' }),
       });
+
+      if (!updateResponse.ok) {
+        throw new Error('Failed to update job status');
+      }
 
       // Update local state
       setJobs((prevJobs) =>
@@ -181,7 +222,10 @@ export const JobsList: React.FC = () => {
 
       setPaymentStates((prev) => ({
         ...prev,
-        [jobId]: { loading: false, status: `✅ Payment sent! ID: ${callsId.slice(0, 10)}...` },
+        [jobId]: { 
+          loading: false, 
+          status: `✅ Payment successful! Calls ID: ${callsId.slice(0, 10)}...` 
+        },
       }));
 
       // Clear status after 5 seconds
@@ -193,11 +237,12 @@ export const JobsList: React.FC = () => {
       }, 5000);
     } catch (error) {
       console.error('Payment failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       setPaymentStates((prev) => ({
         ...prev,
         [jobId]: {
           loading: false,
-          status: `❌ Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          status: `❌ ${errorMessage}`,
         },
       }));
     }
